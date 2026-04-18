@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JetProxy</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0e0e18;color:#e4e4f0;display:flex;flex-direction:column}
+
+/* ── toolbar ── */
+#toolbar{display:flex;align-items:center;gap:7px;padding:7px 10px;background:#141420;border-bottom:1px solid #1f1f32;flex-shrink:0}
+#logo{font-size:13px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;color:#a78bfa}
+#logo s{text-decoration:none;color:#38bdf8}
+.nbg{display:flex;gap:3px}
+.nb{width:28px;height:28px;border:1px solid #1f1f32;border-radius:5px;background:#1a1a28;color:#666;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.1s;user-select:none;font-family:inherit}
+.nb:hover:not([disabled]){background:#252538;color:#e4e4f0}
+.nb[disabled]{opacity:.28;cursor:not-allowed;pointer-events:none}
+#urlbar{flex:1;display:flex;gap:6px;align-items:center}
+#urlinp{flex:1;height:32px;background:#0e0e18;border:1px solid #1f1f32;border-radius:7px;color:#e4e4f0;font-size:13px;padding:0 11px;outline:none;font-family:inherit;min-width:0}
+#urlinp:focus{border-color:#7c3aed}
+#gobtn{height:32px;padding:0 14px;background:#7c3aed;border:none;border-radius:7px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+#gobtn:hover{background:#6d28d9}
+#gobtn:disabled{background:#1f1f32;color:#444;cursor:not-allowed}
+
+/* ── status bar ── */
+#statusbar{display:flex;align-items:center;gap:7px;padding:3px 10px;background:#111119;border-bottom:1px solid #1a1a28;font-size:11px;color:#555;flex-shrink:0;height:20px;overflow:hidden}
+#dot{width:5px;height:5px;border-radius:50%;background:#333;flex-shrink:0}
+#dot.ok{background:#22c55e}
+#dot.loading{background:#f59e0b;animation:blink 1s infinite}
+#dot.err{background:#ef4444}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+#statusmsg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#proxylabel{font-size:10px;margin-left:auto;padding:1px 6px;border-radius:3px;flex-shrink:0;display:none;background:#1a1228;color:#c084fc;border:1px solid #3d1a6e}
+
+/* ── content area ── */
+#content{flex:1;position:relative;overflow:hidden}
+
+/* home */
+#home{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:32px;text-align:center}
+#home h1{font-size:22px;font-weight:700;letter-spacing:-.3px;color:#e4e4f0}
+#home h1 em{font-style:normal;color:#a78bfa}
+#home h1 strong{color:#38bdf8}
+.sub{color:#555;font-size:12px;max-width:380px;line-height:1.65}
+.chips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;max-width:480px}
+.chip{padding:4px 11px;background:#1a1a28;border:1px solid #1f1f32;border-radius:20px;font-size:11px;color:#666;cursor:pointer;transition:.1s}
+.chip:hover{background:#252538;color:#e4e4f0;border-color:#7c3aed}
+.modebadge{font-size:11px;padding:5px 12px;border-radius:6px;line-height:1.5}
+.modebadge.rw{background:#1a1228;border:1px solid #3d1a6e;color:#c084fc}
+
+/* loading */
+#loadpane{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.sp{width:28px;height:28px;border:2px solid #1f1f32;border-top-color:#7c3aed;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loadmsg{font-size:12px;color:#555}
+#progtxt{font-size:11px;color:#3d3d5c}
+
+/* error */
+#errpane{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:32px;text-align:center}
+#errpane h2{font-size:16px;color:#ef4444}
+#errpane p{font-size:12px;color:#666;max-width:360px;line-height:1.6}
+#errdetail{font-size:10px;color:#3d3d5c;font-family:monospace;background:#141420;padding:7px 11px;border-radius:5px;max-width:440px;word-break:break-all;border:1px solid #1f1f32}
+.retbtn{padding:6px 16px;background:#7c3aed;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;font-weight:600;margin-top:4px}
+.retbtn:hover{background:#6d28d9}
+
+/* frame */
+#pframe{position:absolute;inset:0;border:none;display:none;background:#fff;width:100%;height:100%}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div id="logo">Jet<s>Proxy</s></div>
+  <div class="nbg">
+    <button class="nb" id="btnBack" disabled title="Back">&#8592;</button>
+    <button class="nb" id="btnFwd"  disabled title="Forward">&#8594;</button>
+    <button class="nb" id="btnRel"  title="Reload">&#8635;</button>
+    <button class="nb" id="btnHome" title="Home">&#8962;</button>
+  </div>
+  <div id="urlbar">
+    <input id="urlinp" type="text" placeholder="https://example.com" autocomplete="off" spellcheck="false">
+    <button id="gobtn">Go</button>
+  </div>
+</div>
+<div id="statusbar">
+  <div id="dot"></div>
+  <span id="statusmsg">Ready</span>
+  <span id="proxylabel"></span>
+</div>
+<div id="content">
+  <div id="home">
+    <h1>Jet<em>Pro</em><strong>xy</strong></h1>
+    <p class="sub">Single-file in-browser proxy. Fetches pages through CORS gateways and rewrites HTML · CSS · JS so you can navigate.</p>
+    <div class="modebadge rw" id="modebadge">Initializing rewrite engine...</div>
+    <div class="chips">
+      <span class="chip" onclick="nav('https://example.com')">example.com</span>
+      <span class="chip" onclick="nav('https://httpbin.org/html')">httpbin</span>
+      <span class="chip" onclick="nav('https://duckduckgo.com/')">DuckDuckGo</span>
+      <span class="chip" onclick="nav('https://news.ycombinator.com')">Hacker News</span>
+      <span class="chip" onclick="nav('https://en.m.wikipedia.org/wiki/Main_Page')">Wikipedia</span>
+      <span class="chip" onclick="nav('https://quotes.toscrape.com')">Quotes to Scrape</span>
+      <span class="chip" onclick="nav('https://books.toscrape.com')">Books to Scrape</span>
+      <span class="chip" onclick="nav('https://lite.cnn.com')">CNN Lite</span>
+      <span class="chip" onclick="nav('https://text.npr.org')">NPR Text</span>
+      <span class="chip" onclick="nav('https://wiby.me')">Wiby</span>
+      <span class="chip" onclick="nav('https://lobste.rs')">Lobsters</span>
+      <span class="chip" onclick="nav('https://old.reddit.com')">Old Reddit</span>
+    </div>
+    <p class="sub" style="font-size:10px;color:#333">Limitations: sites requiring login, HTTPS-only redirects, or complex JS frameworks (React/Vue SPAs) may not render fully. This is inherent to fetch-based proxying — no browser allows bypassing CORS from a local file.</p>
+  </div>
+  <div id="loadpane">
+    <div class="sp"></div>
+    <div id="loadmsg">Fetching...</div>
+    <div id="progtxt"></div>
+  </div>
+  <div id="errpane">
+    <h2 id="etitle">Failed</h2>
+    <p id="emsg"></p>
+    <div id="errdetail"></div>
+    <button class="retbtn" onclick="retry()">Retry</button>
+  </div>
+  <iframe id="pframe"
+    sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-pointer-lock"
+    referrerpolicy="no-referrer"
+    title="Proxied content"></iframe>
+</div>
+
+<script>
+'use strict';
+
+// ── Proxy pool — raced in parallel, winner used ────────────────────────────
+const PROXIES = [
+  { name: 'corsproxy.io',   url: u => 'https://corsproxy.io/?' + encodeURIComponent(u) },
+  { name: 'allorigins',     url: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
+  { name: 'codetabs',       url: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u) },
+  { name: 'thingproxy',     url: u => 'https://thingproxy.freeboard.io/fetch/' + u },
+  { name: 'cors.eu.org',    url: u => 'https://cors.eu.org/' + u },
+  { name: 'cors-anywhere',  url: u => 'https://cors-anywhere.herokuapp.com/' + u },
+];
+
+// State
+let history = [], hpos = -1, lastUrl = '', busy = false, winProxy = 0;
+
+// DOM
+const urlinp     = document.getElementById('urlinp');
+const dot        = document.getElementById('dot');
+const statusmsg  = document.getElementById('statusmsg');
+const proxylabel = document.getElementById('proxylabel');
+const pframe     = document.getElementById('pframe');
+const home       = document.getElementById('home');
+const loadpane   = document.getElementById('loadpane');
+const loadmsg    = document.getElementById('loadmsg');
+const progtxt    = document.getElementById('progtxt');
+const errpane    = document.getElementById('errpane');
+const modebadge  = document.getElementById('modebadge');
+const gobtn      = document.getElementById('gobtn');
+const btnBack    = document.getElementById('btnBack');
+const btnFwd     = document.getElementById('btnFwd');
+
+function setSt(cls, msg) { dot.className = cls; statusmsg.textContent = msg; }
+function updNav() { btnBack.disabled = hpos <= 0; btnFwd.disabled = hpos >= history.length - 1; }
+
+function showHome()  { home.style.display='flex'; pframe.style.display='none'; loadpane.style.display='none'; errpane.style.display='none'; proxylabel.style.display='none'; setSt('','Ready'); urlinp.value=''; }
+function showLoad(u) { home.style.display='none'; pframe.style.display='none'; loadpane.style.display='flex'; errpane.style.display='none'; loadmsg.textContent='Fetching ' + shortHost(u) + '...'; progtxt.textContent=''; setSt('loading','Loading...'); }
+function showFrame(html, u) { loadpane.style.display='none'; errpane.style.display='none'; pframe.style.display='block'; pframe.srcdoc = html; setSt('ok', u); urlinp.value = u; proxylabel.style.display='inline'; }
+function showErr(t, m, d) { loadpane.style.display='none'; pframe.style.display='none'; errpane.style.display='flex'; document.getElementById('etitle').textContent=t; document.getElementById('emsg').textContent=m; document.getElementById('errdetail').textContent=d||''; setSt('err','Error'); proxylabel.style.display='none'; }
+
+function shortHost(u) { try { return new URL(u).hostname; } catch(e) { return u; } }
+function absUrl(base, rel) {
+  if (!rel || /^(data:|blob:|javascript:|mailto:|tel:|#)/.test(rel)) return rel;
+  try { return new URL(rel, base).href; } catch(e) { return rel; }
+}
+
+// Resolve u, return it only if the result is a genuine http(s) URL.
+// This is the hard gate that prevents about:srcdoc from ever reaching nav().
+function safeHttpUrl(u, base) {
+  if (!u) return null;
+  try {
+    const abs = new URL(String(u), base || 'https://x').href;
+    return /^https?:\/\//i.test(abs) ? abs : null;
+  } catch(e) { return null; }
+}
+
+// ── CSS rewriter ─────────────────────────────────────────────────────────────
+function rewriteCSS(css, base) {
+  if (!css) return '';
+  return css
+    .replace(/url\(\s*(["']?)(.+?)\1\s*\)/g, (_, q, u) => 'url(' + q + absUrl(base, u.trim()) + q + ')')
+    .replace(/@import\s+(["'])(.+?)\1/g, (_, q, u) => '@import ' + q + absUrl(base, u) + q);
+}
+
+// ── Early shim — injected as the FIRST element of <head> ─────────────────────
+//
+// WHY FIRST: DDG and other JS-heavy sites capture window.fetch, XMLHttpRequest,
+// and window.location at script-parse time. If our shim runs after them (at the
+// end of <body>, as in the original), they grab the real unpatched APIs and our
+// intercepts never fire. Being first in <head> guarantees we win.
+//
+// WHY NO history.pushState INTERCEPT: Sites call pushState constantly to update
+// their own URL bar without intending to navigate. Intercepting it in the prev-
+// ious version caused nav() to be called with srcdoc-relative URLs that resolved
+// to about:srcdoc, which is exactly the bug being fixed here. We leave pushState
+// alone; the fake location + fetch shim is sufficient for search to work.
+function buildEarlyShim(pageUrl, proxyFn) {
+  return `(function(){
+var __B=${JSON.stringify(pageUrl)},__P=${JSON.stringify(proxyFn)};
+
+// Route an http(s) URL through the CORS proxy; leave everything else unchanged.
+function __u(u){
+  if(!u||typeof u!=='string')return u;
+  if(/^(data:|blob:|javascript:|mailto:|tel:|#)/.test(u))return u;
+  try{var a=new URL(u,__B).href;if(/^https?:/.test(a))return __P.replace('__URL__',encodeURIComponent(a));}catch(e){}
+  return u;
+}
+
+// Send a navigation to the parent — ONLY for genuine http(s) URLs.
+// Non-http strings (about:srcdoc, javascript:, empty, etc.) are silently dropped.
+function __nav(u){
+  var abs;
+  try{abs=new URL(String(u),__B).href;}catch(e){abs=String(u);}
+  if(!/^https?:\\/\\//.test(abs))return; // hard gate
+  window.parent.postMessage({jp:'nav',u:abs},'*');
+}
+
+// ── Fake window.location ──────────────────────────────────────────────────────
+// DDG navigates via location.href = '...' and location.assign('...')  after a
+// search.  The old code only shimmed the bare "location = url" setter, which
+// DDG never uses.  This fake object intercepts all navigation paths.
+var _fkHref=${JSON.stringify(pageUrl)};
+var _fkLoc={
+  get href(){return _fkHref;},
+  set href(v){__nav(v);},
+  get pathname(){try{return new URL(_fkHref).pathname;}catch(e){return '/'}},
+  get search(){try{return new URL(_fkHref).search;}catch(e){return ''}},
+  get hash(){try{return new URL(_fkHref).hash;}catch(e){return ''}},
+  get host(){try{return new URL(_fkHref).host;}catch(e){return ''}},
+  get hostname(){try{return new URL(_fkHref).hostname;}catch(e){return ''}},
+  get origin(){try{return new URL(_fkHref).origin;}catch(e){return ''}},
+  get protocol(){try{return new URL(_fkHref).protocol;}catch(e){return 'https:'}},
+  get port(){try{return new URL(_fkHref).port;}catch(e){return ''}},
+  assign:function(v){__nav(v);},
+  replace:function(v){__nav(v);},
+  reload:function(){window.parent.postMessage({jp:'reload'},'*');},
+  toString:function(){return _fkHref;}
+};
+try{
+  Object.defineProperty(window,'location',{get:function(){return _fkLoc;},configurable:true,enumerable:true});
+}catch(e){}
+
+// ── Proxy window.fetch ────────────────────────────────────────────────────────
+var _f=window.fetch;
+window.fetch=function(r,o){
+  try{
+    if(typeof r==='string'){r=__u(r);}
+    else if(r&&typeof r==='object'&&r.url){
+      var nu=__u(r.url);
+      if(nu!==r.url){
+        try{r=new Request(nu,{method:r.method,headers:r.headers,body:r.body,mode:'cors',credentials:r.credentials,cache:r.cache});}
+        catch(e){r=nu;}
+      }
+    }
+  }catch(e){}
+  return _f.call(window,r,o);
+};
+
+// ── Proxy XMLHttpRequest ──────────────────────────────────────────────────────
+var _X=window.XMLHttpRequest;
+function _PX(){
+  var x=new _X();
+  var _o=x.open.bind(x);
+  x.open=function(){var a=[].slice.call(arguments);if(typeof a[1]==='string')a[1]=__u(a[1]);return _o.apply(x,a);};
+  return x;
+}
+try{_PX.prototype=_X.prototype;}catch(e){}
+window.XMLHttpRequest=_PX;
+
+// ── Proxy window.open ─────────────────────────────────────────────────────────
+window.open=function(u,t,f){if(u&&u!=='about:blank')__nav(u);return null;};
+
+// ── Watch for dynamically injected <script src> ───────────────────────────────
+// Some sites inject script tags at runtime to load bundles or search results.
+try{
+  new MutationObserver(function(ms){
+    ms.forEach(function(m){
+      m.addedNodes.forEach(function(n){
+        if(n.nodeType===1&&n.tagName==='SCRIPT'&&n.src&&!/^(data:|blob:)/.test(n.src)){
+          var ps=__u(n.src);
+          if(ps!==n.src){try{n.src=ps;}catch(e){}}
+        }
+      });
+    });
+  }).observe(document.documentElement,{childList:true,subtree:true});
+}catch(e){}
+
+})();`;
+}
+
+// ── HTML rewriter — the main event ───────────────────────────────────────────
+function rewriteHTML(html, pageUrl, proxyFn) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  // 1. Strip CSP and X-Frame-Options so the page renders in our iframe
+  doc.querySelectorAll('meta').forEach(m => {
+    const he = (m.getAttribute('http-equiv') || '').toLowerCase();
+    if (he === 'content-security-policy' || he === 'x-frame-options') m.remove();
+  });
+
+  // 2. Inject EARLY SHIM as absolute first child of <head>
+  if (!doc.head) {
+    const h = doc.createElement('head');
+    doc.documentElement.insertBefore(h, doc.documentElement.firstChild);
+  }
+  const earlyShim = doc.createElement('script');
+  earlyShim.textContent = buildEarlyShim(pageUrl, proxyFn);
+  doc.head.insertBefore(earlyShim, doc.head.firstChild);
+
+  // 3. Ensure absolute <base> tag right after the shim
+  const oldBase = doc.querySelector('base');
+  if (oldBase) oldBase.remove();
+  const base = doc.createElement('base');
+  base.href = pageUrl;
+  earlyShim.insertAdjacentElement('afterend', base);
+
+  // 4. Absolutize every URL-bearing attribute
+  const SRCS = ['src','data','action','poster','href','xlink:href','srcset'];
+  doc.querySelectorAll('*').forEach(el => {
+    SRCS.forEach(attr => {
+      const v = el.getAttribute(attr);
+      if (!v) return;
+      if (attr === 'srcset') {
+        el.setAttribute('srcset', v.split(',').map(s => {
+          const p = s.trim().split(/\s+/);
+          if (p[0]) p[0] = absUrl(pageUrl, p[0]);
+          return p.join(' ');
+        }).join(', '));
+        return;
+      }
+      if (/^(javascript:|#|data:|blob:|mailto:|tel:)/.test(v)) return;
+      if ((el.tagName === 'A' || el.tagName === 'AREA') && attr === 'href') {
+        try {
+          el.setAttribute('data-jp', new URL(v, pageUrl).href);
+          el.setAttribute('href', 'javascript:void(0)');
+        } catch(e) {}
+        return;
+      }
+      if (el.tagName === 'FORM' && attr === 'action') {
+        try { el.setAttribute('data-jpa', new URL(v, pageUrl).href); } catch(e) {}
+        el.setAttribute('action', 'javascript:void(0)');
+        return;
+      }
+      try { el.setAttribute(attr, new URL(v, pageUrl).href); } catch(e) {}
+    });
+
+    const style = el.getAttribute('style');
+    if (style && style.includes('url(')) el.setAttribute('style', rewriteCSS(style, pageUrl));
+  });
+
+  // 5. Give forms with no action attribute a data-jpa pointing to the page URL.
+  //    Handles bare <form method="get"> (common on DDG and other search engines).
+  doc.querySelectorAll('form').forEach(f => {
+    if (!f.getAttribute('data-jpa')) {
+      const raw = f.getAttribute('action');
+      const resolved = (raw && !/^javascript:/.test(raw)) ? absUrl(pageUrl, raw) : pageUrl;
+      f.setAttribute('data-jpa', resolved);
+      f.setAttribute('action', 'javascript:void(0)');
+    }
+  });
+
+  // 6. Rewrite <style> blocks
+  doc.querySelectorAll('style').forEach(s => { s.textContent = rewriteCSS(s.textContent, pageUrl); });
+
+  // 7. Rewrite inline scripts (original behaviour kept for belt-and-suspenders)
+  doc.querySelectorAll('script:not([src])').forEach(s => {
+    const t = (s.type || '').toLowerCase();
+    if (t && t !== 'text/javascript' && t !== 'application/javascript' && t !== 'module' && t !== '') return;
+    // Early shim already patches globals; we leave inline JS untouched to
+    // avoid parse errors from the previous double-shim approach.
+  });
+
+  // 8. Inject navigator script at end of body (click + form submit handling)
+  const navScript = doc.createElement('script');
+  navScript.textContent = `(function(){
+  var __BASE=${JSON.stringify(pageUrl)};
+
+  // Resolve u against __BASE; return null if result isn't a real http(s) URL.
+  function __safe(u){
+    if(!u)return null;
+    try{var a=new URL(String(u),__BASE).href;return /^https?:\\/\\//.test(a)?a:null;}
+    catch(e){return null;}
+  }
+
+  // ── Intercept <a> clicks ───────────────────────────────────────────────────
+  document.addEventListener('click',function(e){
+    var t=e.target;
+    for(var i=0;i<8;i++){
+      if(!t||t===document)break;
+      var jp=t.getAttribute&&t.getAttribute('data-jp');
+      if(jp){
+        var safe=__safe(jp);
+        if(safe){e.preventDefault();e.stopPropagation();window.parent.postMessage({jp:'nav',u:safe},'*');}
+        return;
+      }
+      t=t.parentNode;
+    }
+  },true);
+
+  // ── Intercept form submits (capture phase beats page listeners) ────────────
+  document.addEventListener('submit',function(e){
+    var f=e.target;
+    var rawAction=f.getAttribute('data-jpa')||f.getAttribute('action')||__BASE;
+    if(!rawAction||/^javascript:/.test(rawAction))rawAction=__BASE;
+    var action=__safe(rawAction)||__safe(__BASE);
+    if(!action)return; // can't produce a safe URL — let browser handle it
+    e.preventDefault();
+    e.stopPropagation();
+    var method=(f.getAttribute('method')||'get').toLowerCase();
+    var fd=new FormData(f);
+    var qs=[];fd.forEach(function(v,k){qs.push(encodeURIComponent(k)+'='+encodeURIComponent(v));});
+    if(method==='get'&&qs.length)action+=(action.indexOf('?')>=0?'&':'?')+qs.join('&');
+    window.parent.postMessage({jp:'nav',u:action},'*');
+  },true);
+
+  // ── Report ready + sync title ──────────────────────────────────────────────
+  window.parent.postMessage({jp:'ready',title:document.title},'*');
+  try{
+    var _t=document.title;
+    Object.defineProperty(document,'title',{
+      get:function(){return _t;},
+      set:function(v){_t=v;window.parent.postMessage({jp:'title',v:v},'*');}
+    });
+  }catch(e){}
+})();`;
+  (doc.body || doc.documentElement).appendChild(navScript);
+
+  return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+}
+
+// ── Race all proxies, return first winner ─────────────────────────────────────
+async function raceFetch(url) {
+  // Fast path: try last known-good proxy first
+  try {
+    const pu = PROXIES[winProxy].url(url);
+    progtxt.textContent = 'Trying ' + PROXIES[winProxy].name + '...';
+    const r = await fetch(pu, { signal: AbortSignal.timeout(8000), headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    if (r.ok) {
+      proxylabel.textContent = PROXIES[winProxy].name;
+      return { res: r, proxyIdx: winProxy };
+    }
+  } catch(e) {}
+
+  // Race all proxies simultaneously
+  progtxt.textContent = 'Racing ' + PROXIES.length + ' proxies...';
+  return new Promise((resolve, reject) => {
+    let remaining = PROXIES.length;
+    PROXIES.forEach((p, i) => {
+      fetch(p.url(url), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => {
+          if (r.ok) {
+            winProxy = i;
+            proxylabel.textContent = p.name;
+            resolve({ res: r, proxyIdx: i });
+          } else {
+            if (--remaining === 0) reject(new Error('All proxies returned errors'));
+          }
+        })
+        .catch(() => { if (--remaining === 0) reject(new Error('All proxies failed')); });
+    });
+    setTimeout(() => reject(new Error('Timed out after 15s')), 15000);
+  });
+}
+
+// ── Main load function ────────────────────────────────────────────────────────
+async function nav(url, addHist = true) {
+  if (busy) return;
+  if (!url) return;
+  url = url.trim();
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  // Hard gate — reject anything that still isn't a proper http(s) URL
+  // (blocks about:srcdoc, javascript:, data: etc. from ever being fetched)
+  if (!/^https?:\/\/.+/i.test(url)) return;
+
+  busy = true; gobtn.disabled = true;
+  lastUrl = url;
+  showLoad(url);
+
+  try {
+    const { res, proxyIdx } = await raceFetch(url);
+    const ct = res.headers.get('content-type') || '';
+    const body = await res.text();
+    const proxyFn = PROXIES[proxyIdx].url('__URL__');
+
+    let finalHTML;
+    const isHTML = /text\/html/i.test(ct) || /<(!DOCTYPE|html)\b/i.test(body.slice(0, 300));
+
+    if (isHTML) {
+      progtxt.textContent = 'Rewriting...';
+      finalHTML = rewriteHTML(body, url, proxyFn);
+    } else if (/\b(json|xml|plain|css|javascript)\b/i.test(ct)) {
+      const esc = body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      finalHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>body{background:#0e0e18;color:#e4e4f0;font-family:monospace;font-size:12px;padding:20px;white-space:pre-wrap;word-break:break-all;line-height:1.6}
+.ct{color:#555;font-size:10px;margin-bottom:12px}</style></head>
+<body><div class="ct">${ct} — ${url}</div>${esc}</body></html>`;
+    } else if (/^image\//i.test(ct)) {
+      finalHTML = `<!DOCTYPE html><html><body style="margin:0;background:#000;min-height:100vh;display:flex;align-items:center;justify-content:center">
+<img src="${url}" alt="" style="max-width:100%;max-height:100vh"></body></html>`;
+    } else {
+      progtxt.textContent = 'Rewriting...';
+      finalHTML = rewriteHTML(body, url, proxyFn);
+    }
+
+    showFrame(finalHTML, url);
+
+    if (addHist) {
+      history = history.slice(0, hpos + 1);
+      history.push(url);
+      hpos = history.length - 1;
+    }
+    updNav();
+  } catch(e) {
+    showErr(
+      'Could not load page',
+      'All ' + PROXIES.length + ' CORS proxy routes failed or timed out. This site may block proxy requests, require cookies/auth, or enforce HTTPS-only same-origin policies.',
+      e && e.message ? e.message : String(e)
+    );
+  }
+  busy = false; gobtn.disabled = false;
+}
+
+function retry() { if (lastUrl) nav(lastUrl, false); }
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+urlinp.addEventListener('keydown', e => { if (e.key === 'Enter') { const v = urlinp.value.trim(); if (v) nav(v); } });
+gobtn.addEventListener('click', () => { const v = urlinp.value.trim(); if (v) nav(v); });
+document.getElementById('btnRel').addEventListener('click', () => { if (lastUrl) nav(lastUrl, false); });
+document.getElementById('btnHome').addEventListener('click', showHome);
+btnBack.addEventListener('click', () => { if (hpos > 0) { hpos--; nav(history[hpos], false); } });
+btnFwd.addEventListener('click', () => { if (hpos < history.length-1) { hpos++; nav(history[hpos], false); } });
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key==='l') { e.preventDefault(); urlinp.focus(); urlinp.select(); }
+});
+
+// Parent message listener — strict http(s)-only gate at the door.
+// Any message carrying a non-http(s) URL (about:srcdoc, javascript:, etc.)
+// is silently discarded before it can reach nav().
+window.addEventListener('message', e => {
+  if (!e.data || !e.data.jp) return;
+  if (e.data.jp === 'nav' && e.data.u) {
+    if (/^https?:\/\//i.test(e.data.u)) nav(e.data.u);
+  }
+  if (e.data.jp === 'title' && e.data.v) document.title = e.data.v + ' · JetProxy';
+  if (e.data.jp === 'reload') { if (lastUrl) nav(lastUrl, false); }
+});
+
+// ── Init — probe proxy pool ───────────────────────────────────────────────────
+(async function probe() {
+  modebadge.textContent = 'Probing proxy pool...';
+  const test = 'https://example.com';
+  let alive = 0;
+  const checks = PROXIES.map(async (p, i) => {
+    try {
+      const r = await fetch(p.url(test), { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+      if (r.ok || r.status < 500) { alive++; if (alive === 1) winProxy = i; }
+    } catch(e) {}
+  });
+  await Promise.allSettled(checks);
+  if (alive > 0) {
+    modebadge.textContent = alive + ' of ' + PROXIES.length + ' proxies reachable · Rewrite engine ready';
+    modebadge.style.background = '#0f1f0f';
+    modebadge.style.borderColor = '#14532d';
+    modebadge.style.color = '#4ade80';
+  } else {
+    modebadge.textContent = 'Warning: no proxies reachable. Try a different network.';
+    modebadge.style.background = '#1f0f0f';
+    modebadge.style.borderColor = '#7f1d1d';
+    modebadge.style.color = '#f87171';
+  }
+})();
+</script>
+</body>
+</html>
